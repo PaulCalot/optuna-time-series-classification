@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from tqdm import tqdm
 
 class TorchClassifier:
     def __init__(self, model, lr, epochs, batch_size) -> None:
@@ -9,6 +10,7 @@ class TorchClassifier:
         self.lr = lr
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
+        self.loss_function = torch.nn.CrossEntropyLoss()
 
     def fit(self, x, y):
         train(self.model, x, y, self.lr, self.epochs, self.batch_size, self.device)
@@ -21,7 +23,17 @@ class TorchClassifier:
         self.model.train()
         return pred.cpu().numpy()
 
-def train(model, x, y, lr, epochs, batch_size, device):
+    def score(self, x, y):
+        pred = self.predict(x)
+        accuracy = get_accuracy(y, pred)
+        return accuracy
+
+def get_accuracy(y_true, y_prob):
+    assert y_true.ndim == 1 and y_true.shape[0] == y_prob.shape[0]
+    y_prob = np.argmax(y_prob, axis=-1)
+    return 1 - np.mean(np.abs(y_true - y_prob))
+
+def train(model, x, y, lr, epochs, batch_size, device, verbose=True):
     # we suppose GPU is powerful enough to handle full dataset, if available
     dataset = ClassificationDataset(torch.Tensor(x).to(device), torch.LongTensor(y).to(device))
     # train_dataset, valid_dataset = torch.utils.data.random_split(dataset, lengths)
@@ -35,7 +47,7 @@ def train(model, x, y, lr, epochs, batch_size, device):
     train_loss_list = []
     # valid_loss_list = []
 
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), disable=not verbose):
         train_loss = train_one_epoch(epoch, model, optimiser, loss_function, train_loader)
         # valid_loss = evaluate(valid_loader, model, loss_function)
 
@@ -69,7 +81,7 @@ def train_one_epoch(epoch_index, model, optimiser, loss_function, data_loader):
 class TimeSeriesClassificationNet(torch.nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, activation_fn, number_of_classes) -> None:
         super().__init__()
-        assert(activation_fn in ['softmax', 'logsoftmax'])
+        assert(activation_fn in ['softmax', 'logsoftmax', 'sigmoid'])
 
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -86,8 +98,11 @@ class TimeSeriesClassificationNet(torch.nn.Module):
                                             bias=True)
         if(activation_fn == 'softmax'):
             self.activation_fn = torch.nn.Softmax(dim=1)
+        elif(activation_fn == 'sigmoid'):
+            self.activation_fn = torch.nn.Sigmoid()
         # default
-        self.activation_fn = torch.nn.LogSoftmax(dim=1)
+        else:
+            self.activation_fn = torch.nn.LogSoftmax(dim=1)
 
     def forward(self, X):
         if(len(X.shape) == 2):
